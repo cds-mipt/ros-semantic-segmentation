@@ -1,0 +1,52 @@
+#!/usr/bin/env python
+
+import numpy as np
+import rospy
+from cv_bridge import CvBridge
+from sensor_msgs.msg import Image
+import cv2
+
+
+def on_image(msg):
+    on_image.last_image = msg
+
+
+on_image.last_image = None
+
+
+if __name__ == "__main__":
+    br = CvBridge()
+    rospy.init_node('image_preprocessor')
+
+    TOPIC_IMAGE_RAW = rospy.get_param('~topic_image_raw', 'image_raw')
+    TOPIC_IMAGE_FLOAT_RGB_LARGE = rospy.get_param('~topic_image_float_rgb_large', 'image_float_rgb_large')
+    TOPIC_IMAGE_FLOAT_RGB_SMALL = rospy.get_param('~topic_image_float_rgb_small', 'image_float_rgb_small')
+    RATE = rospy.get_param('~rate', 5)
+
+    sub_image_raw = rospy.Subscriber(TOPIC_IMAGE_RAW, Image, on_image)
+    pub_image_float_rgb_large = rospy.Publisher(TOPIC_IMAGE_FLOAT_RGB_LARGE, Image, queue_size=5)
+    pub_image_float_rgb_small = rospy.Publisher(TOPIC_IMAGE_FLOAT_RGB_SMALL, Image, queue_size=5)
+
+    rate = rospy.Rate(RATE)
+
+    while not rospy.is_shutdown():
+        rate.sleep()
+
+        if on_image.last_image is None:
+            continue
+
+        header = on_image.last_image.header
+
+        img_large = br.imgmsg_to_cv2(on_image.last_image, desired_encoding='rgb8') / 255.
+        if pub_image_float_rgb_large.get_num_connections() > 0:
+            print(img_large.shape)
+            m = br.cv2_to_imgmsg(img_large)
+            m.header = header
+            pub_image_float_rgb_large.publish(m)
+
+        img_small = cv2.resize(img_large, (640, 384))
+        if pub_image_float_rgb_small.get_num_connections() > 0:
+            print(img_small.shape)
+            m = br.cv2_to_imgmsg(img_small)
+            m.header = header
+            pub_image_float_rgb_small.publish(m)

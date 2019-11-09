@@ -1,0 +1,73 @@
+#!/usr/bin/env python
+
+import rospy
+from cv_bridge import CvBridge
+from sensor_msgs.msg import Image, RegionOfInterest
+import numpy as np
+import cv2
+from semantic_segmentation.msg import RoiArray
+
+
+N_CLASSES = 10
+
+
+def on_semantic(msg):
+    on_semantic.last_image = msg
+
+
+on_semantic.last_image = None
+
+
+def extract_objects(semantic):
+    detect_dict = {"traffic_light": 6}
+    bboxes = []
+    scale = np.array([1280. / 384., 2048. / 640.])
+    for label in detect_dict:
+        idx = detect_dict[label]
+
+        mask = np.zeros((semantic.shape[0], semantic.shape[1]), dtype=np.uint8)
+        mask[semantic == idx] = 255
+
+        ret, labels = cv2.connectedComponents(mask.astype(dtype=np.uint8))
+        area_threshold = 30
+        for region_id in range(ret - 1):
+            # region_id==0 is background
+            region_points = np.argwhere(labels == (region_id + 1))  # labels[labels==region_id]
+            region_area = len(region_points)
+            if region_area > area_threshold:
+                top_left_corner = (region_points.min(axis=0) * scale).astype(int)
+                bottom_right_corner = (region_points.max(axis=0) * scale).astype(int)
+                bboxes.append(list(top_left_corner)[::-1] + list(bottom_right_corner - top_left_corner)[::-1])
+
+    return bboxes
+
+
+def bbox_to_roi(bbox):
+    return RegionOfInterest(*(bbox + [False]))
+
+
+def main():
+    br = CvBridge()
+    rospy.init_node('segm_to_roi')
+
+    TOPIC_SEMANTIC = rospy.get_param('~topic_semantic', 'semantic')
+    TOPIC_TRAFFIC_LIGHT_ROI_ARRAY = rospy.get_param('~traffic_light_roi_array', 'traffic_light_roi_array')
+
+    sub_semantic = rospy.Subscriber(TOPIC_SEMANTIC, Image, on_semantic)
+    pub_traffic_light_roi_arr = rospy.Publisher(TOPIC_TRAFFIC_LIGHT_ROI_ARRAY, RoiArray, queue_size=5)
+
+    while not rospy.is_shutdown():
+        if on_semantic.last_image is None:
+            continue
+        last_image = on_semantic.last_image
+        on_semantic.last_image = None
+        if pub_traffic_light_roi_arr.get_num_connections() > 0:
+            semantic = br.imgmsg_to_cv2(last_image)
+            bboxes = extract_objects(semantic)
+            m = RoiArray(rois=[bbox_to_roi(bbox) for bbox in bboxes])
+            m.header.stamp = last_image.header.stamp
+            pub_traffic_light_roi_arr.publish(m)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,65 @@
+#!/usr/bin/env python
+
+import rospy
+from cv_bridge import CvBridge
+from sensor_msgs.msg import Image, RegionOfInterest
+import numpy as np
+import cv2
+from semantic_segmentation.msg import RoiArray
+
+
+COLOR = (0, 0, 255)
+
+
+def on_image(msg):
+    on_image.last_image = msg
+
+
+def on_roi_array(msg):
+    on_roi_array.last_roi_array = msg
+
+
+on_image.last_image = None
+on_roi_array.last_roi_array = None
+
+
+def draw_objects(image, roi_array):
+    for roi in roi_array.rois:
+        x, y, w, h = roi.x_offset, roi.y_offset, roi.height, roi.width
+        cv2.rectangle(image, (x, y), (x + w, y + h), COLOR, 2)
+    return image
+
+
+def main():
+    br = CvBridge()
+    rospy.init_node('roi_visualizer')
+
+    TOPIC_IMAGE_FLOAT_RGB_LARGE = rospy.get_param('~topic_image', 'image_float_rgb_large')
+    TOPIC_TRAFFIC_LIGHT_ROI_ARRAY = rospy.get_param('~traffic_light_roi_array', 'traffic_light_roi_array')
+    TOPIC_IMAGE_WITH_ROIS = rospy.get_param('~image_with_rois', 'image_with_rois')
+
+    sub_image = rospy.Subscriber(TOPIC_IMAGE_FLOAT_RGB_LARGE, Image, on_image)
+    sub_roi_arr = rospy.Subscriber(TOPIC_TRAFFIC_LIGHT_ROI_ARRAY, RoiArray, on_roi_array)
+    pub_image_roi = rospy.Publisher(TOPIC_IMAGE_WITH_ROIS, Image, queue_size=1)
+
+    while not rospy.is_shutdown():
+        if (on_image.last_image is None or on_roi_array.last_roi_array is None
+                or on_image.last_image.header.stamp != on_roi_array.last_roi_array.header.stamp):
+            continue
+        last_image = on_image.last_image
+        last_roi_array = on_roi_array.last_roi_array
+        on_image.last_image = None
+        on_roi_array.last_roi_array = None
+        if pub_image_roi.get_num_connections() > 0:
+            header = last_image.header
+            img = cv2.cvtColor((br.imgmsg_to_cv2(last_image) * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+
+            img = draw_objects(img, last_roi_array)
+
+            m = br.cv2_to_imgmsg(img.astype(np.uint8))
+            m.header.stamp = header.stamp
+            pub_image_roi.publish(m)
+
+
+if __name__ == "__main__":
+    main()

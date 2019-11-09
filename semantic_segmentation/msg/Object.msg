@@ -1,0 +1,2 @@
+sensor_msgs/RegionOfInterest bbox
+uint8 label

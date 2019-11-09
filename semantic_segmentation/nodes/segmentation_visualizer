@@ -1,0 +1,88 @@
+#!/usr/bin/env python
+
+import rospy
+from cv_bridge import CvBridge
+from sensor_msgs.msg import Image
+import numpy as np
+import cv2
+
+
+N_CLASSES = 10
+
+
+def on_image(msg):
+    on_image.last_image = msg
+
+
+def on_semantic(msg):
+    on_semantic.last_image = msg
+
+
+on_image.last_image = None
+on_semantic.last_image = None
+
+
+def get_colors():
+    idx_to_color = [int(180 * idx / N_CLASSES) for idx in range(N_CLASSES)]
+    idx_to_color = [
+        tuple(cv2.cvtColor(np.array([[[color, 255, 255]]], dtype=np.uint8), cv2.COLOR_HSV2BGR)[0, 0])
+        for color in idx_to_color
+    ]
+    idx_to_color = [tuple(map(int, color)) for color in idx_to_color]
+    return np.array(idx_to_color, dtype=np.uint8)
+
+
+def blend(image, mask, transparency):
+    m = (mask > 0).any(axis=2).astype(int)[:, :, None]
+    image = (image * (1 - m)
+             + image * m * transparency
+             + mask * m * (1 - transparency)).astype(np.uint8)
+    return image
+
+
+def main():
+    br = CvBridge()
+    rospy.init_node('segmentation_visualizer')
+
+    TOPIC_IMAGE_RGB_SMALL = rospy.get_param('~topic_image', 'image_float_rgb_small')
+    TOPIC_SEMANTIC = rospy.get_param('~topic_semantic', 'semantic')
+    TOPIC_SEMANTIC_COLOR = rospy.get_param('~topic_semantic_color', 'semantic_color')
+    TOPIC_SEMANTIC_BLEND = rospy.get_param('~topic_semantic_color', 'semantic_blend')
+
+    idx_to_color = get_colors()
+
+    sub_image = rospy.Subscriber(TOPIC_IMAGE_RGB_SMALL, Image, on_image)
+    sub_semantic = rospy.Subscriber(TOPIC_SEMANTIC, Image, on_semantic)
+    pub_semantic_color = rospy.Publisher(TOPIC_SEMANTIC_COLOR, Image, queue_size=1)
+    pub_semantic_blend = rospy.Publisher(TOPIC_SEMANTIC_BLEND, Image, queue_size=1)
+
+    while not rospy.is_shutdown():
+        if (on_image.last_image is None or on_semantic.last_image is None
+                or on_image.last_image.header.stamp != on_semantic.last_image.header.stamp):
+            continue
+        last_image = on_image.last_image
+        last_semantic = on_semantic.last_image
+        on_image.last_image = None
+        on_semantic.last_image = None
+
+        if pub_semantic_color.get_num_connections() > 0 or pub_semantic_blend.get_num_connections() > 0:
+            header = last_image.header
+            img = (br.imgmsg_to_cv2(last_image) * 255).astype(np.uint8)
+
+            semantic = br.imgmsg_to_cv2(last_semantic)
+            semantic_color = idx_to_color[semantic]
+
+            if pub_semantic_color.get_num_connections() > 0:
+                m = br.cv2_to_imgmsg(semantic_color, encoding='rgb8')
+                m.header.stamp = header.stamp
+                pub_semantic_color.publish(m)
+
+            if pub_semantic_blend.get_num_connections() > 0:
+                img = cv2.resize(img, semantic_color.shape[:2][::-1])
+                m = br.cv2_to_imgmsg(blend(img, semantic_color, 0.7), encoding='rgb8')
+                m.header.stamp = header.stamp
+                pub_semantic_blend.publish(m)
+
+
+if __name__ == "__main__":
+    main()

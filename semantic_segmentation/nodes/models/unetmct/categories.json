@@ -1,0 +1,42 @@
+[
+    {
+        "color": [ 255, 255, 0 ],
+        "name": "traffic_sign"
+    },
+    {
+        "color": [ 0, 0, 255 ],
+        "name": "car"
+    },
+    {
+        "color": [ 0, 128, 255 ],
+        "name": "truck"
+    },
+    {
+        "color": [ 255, 153, 204 ],
+        "name": "person"
+    },
+    {
+        "color": [ 37, 193, 255 ],
+        "name": "solid"
+    },
+    {
+        "color": [ 255, 0, 128 ],
+        "name": "intermittent"
+    },
+    {
+        "color": [ 255, 128, 0 ],
+        "name": "traffic_light"
+    },
+    {
+        "color": [ 200, 150, 180 ],
+        "name": "borders"
+    },
+    {
+        "color": [ 255, 0, 255 ],
+        "name": "road"
+    },
+    {
+        "color": [ 255, 206, 135 ],
+        "name": "sky"
+    }
+]
